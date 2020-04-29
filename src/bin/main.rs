@@ -1,8 +1,9 @@
 use std::io::prelude::*;
 use std::net::TcpListener;
 use std::net::TcpStream;
-use std::fs;
+use std::str;
 use rusteval::ThreadPool;
+use http::{Response, HeaderValue, StatusCode};
 
 const THREAD_POOL_SIZE: usize = 10;
 
@@ -10,7 +11,7 @@ fn main() {
     let listener = TcpListener::bind("127.0.0.1:7878").unwrap();
     let pool = ThreadPool::new(THREAD_POOL_SIZE);
 
-    for stream in listener.incoming().take(2) {
+    for stream in listener.incoming() {
         let stream = stream.unwrap();
         pool.execute(|| {
             handle_connection(stream);
@@ -23,17 +24,19 @@ fn handle_connection(mut stream: TcpStream) {
 
     stream.read(&mut buffer).unwrap();
 
-    let get = b"GET / HTTP/1.1\r\n";
-    let (status_line, filename) = if buffer.starts_with(get) {
-        ("HTTP/1.1 200 OK\r\n\r\n", "hello.html")
-    } else {
-        ("HTTP/1.1 404 NOT FOUND\r\n\r\n", "404.html")
-    };
+    let response = Response::builder()
+        .header("Content-type", HeaderValue::from_static("text/plain"))
+        .status(StatusCode::OK)
+        .body("Hello, world!")
+        .unwrap();
 
-    let contents = fs::read_to_string(filename).unwrap();
+    let mut headers = String::from("");
+    for hv in response.headers().iter() {
+        headers.push_str(format!("{}: {}\r\n", hv.0.as_str(), str::from_utf8(hv.1.as_bytes()).unwrap()).as_str())
+    }
 
-    let response = format!("{}{}", status_line, contents);
+    let resp_str = format!("HTTP/1.1 200 OK\r\n{}\r\n{}", headers, response.body());
 
-    stream.write(response.as_bytes()).unwrap();
+    stream.write(resp_str.as_bytes()).unwrap();
     stream.flush().unwrap();
 }
